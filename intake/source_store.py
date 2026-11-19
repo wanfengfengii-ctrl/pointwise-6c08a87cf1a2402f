@@ -42,6 +42,18 @@ def initialize_source(db):
                 FOREIGN KEY (station, batch, draft, end) REFERENCES nodes (station, batch, draft, node)
             )
         ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS timed_transfers (
+                station TEXT NOT NULL, batch TEXT NOT NULL, draft TEXT NOT NULL,
+                record_id TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL,
+                depart INTEGER NOT NULL CHECK (typeof(depart) = 'integer' AND depart >= 0),
+                arrive INTEGER NOT NULL CHECK (typeof(arrive) = 'integer' AND arrive >= 0),
+                PRIMARY KEY (station, batch, draft, record_id),
+                FOREIGN KEY (station, batch, draft, start) REFERENCES nodes (station, batch, draft, node),
+                FOREIGN KEY (station, batch, draft, end) REFERENCES nodes (station, batch, draft, node),
+                CHECK (depart <= arrive)
+            )
+        ''')
         initialize_revisions(db)
         initialize_catalog(db)
 

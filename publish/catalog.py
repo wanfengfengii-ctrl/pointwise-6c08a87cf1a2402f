@@ -7,11 +7,21 @@ from intake.source_store import source_transaction
 
 from .eligibility import build_eligibility
 from .package import PublicBoundary, StationPackage, encode_package
+from .timed_eligibility import build_timed_eligibility
+from .timed_package import TimedStationPackage, encode_timed_package
 
 
 def initialize_catalog(db):
     db.execute('''
         CREATE TABLE IF NOT EXISTS publications (
+            station TEXT NOT NULL, batch TEXT NOT NULL, revision TEXT NOT NULL,
+            pack_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL,
+            PRIMARY KEY (station, batch, revision),
+            FOREIGN KEY (station, batch, revision) REFERENCES revisions (station, batch, revision)
+        )
+    ''')
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS timed_publications (
             station TEXT NOT NULL, batch TEXT NOT NULL, revision TEXT NOT NULL,
             pack_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL,
             PRIMARY KEY (station, batch, revision),
@@ -50,6 +60,35 @@ def publish_pack(db, key):
         ))
         db.execute('''
             INSERT INTO publications (station, batch, revision, pack_id, payload)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (*key, pack_id, payload))
+    return payload
+
+
+def _timed_row(db, key):
+    return db.execute('''
+        SELECT payload FROM timed_publications
+        WHERE station = ? AND batch = ? AND revision = ?
+    ''', validate_key(key)).fetchone()
+
+
+def publish_timed_pack(db, key):
+    with source_transaction(db):
+        prior = _timed_row(db, key)
+        if prior is not None:
+            return prior[0]
+        frozen = read_revision(db, key)
+        key_bytes = json.dumps(('timed', *key), separators=(',', ':')).encode('ascii')
+        pack_id = 'ST-' + hashlib.sha256(key_bytes).hexdigest()
+        directory = tuple(
+            PublicBoundary(point.public_id, point.direction, point.neighbor)
+            for point in frozen.boundaries
+        )
+        payload = encode_timed_package(TimedStationPackage(
+            pack_id, *key, directory, build_timed_eligibility(frozen),
+        ))
+        db.execute('''
+            INSERT INTO timed_publications (station, batch, revision, pack_id, payload)
             VALUES (?, ?, ?, ?, ?)
         ''', (*key, pack_id, payload))
     return payload

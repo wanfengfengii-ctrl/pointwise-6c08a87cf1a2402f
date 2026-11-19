@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .days import require_identity, validate_key
+from .days import require_identity, validate_key, validate_key
 
 
 @dataclass(frozen=True)
@@ -12,6 +12,12 @@ class Transfer:
 
 def accept_transfer(db, key, transfer):
     require_identity(transfer.record_id)
+    timed_row = db.execute('''
+        SELECT 1 FROM timed_transfers
+        WHERE station = ? AND batch = ? AND draft = ? AND record_id = ?
+    ''', (*validate_key(key), transfer.record_id)).fetchone()
+    if timed_row is not None:
+        raise ValueError('RECORD_CONFLICT')
     row = db.execute('''
         SELECT start, end FROM transfers
         WHERE station = ? AND batch = ? AND draft = ? AND record_id = ?

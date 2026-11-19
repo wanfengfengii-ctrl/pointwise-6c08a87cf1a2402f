@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict, dataclass
 
 from intake.days import validate_key
+from intake.timed_transfers import TimedTransfer
 from intake.transfers import Transfer
 
 from .boundaries import BoundaryPoint
@@ -15,12 +16,16 @@ class FrozenRevision:
     draft: str
     base_revision: str | None
     nodes: tuple[str, ...]
-    transfers: tuple[Transfer, ...]
+    transfers: tuple[Transfer | TimedTransfer, ...]
     boundaries: tuple[BoundaryPoint, ...]
 
     @property
     def key(self):
         return self.station, self.batch, self.revision
+
+    @property
+    def timed_transfers(self):
+        return tuple(item for item in self.transfers if isinstance(item, TimedTransfer))
 
 
 def initialize_revisions(db):
@@ -57,8 +62,14 @@ def read_revision(db, key):
     if row is None:
         raise LookupError('REVISION_NOT_FOUND')
     body = json.loads(row[2])
+    transfers = tuple(
+        TimedTransfer(
+            entry['record_id'], entry['start'], entry['end'], entry['depart'], entry['arrive'],
+        ) if 'depart' in entry else Transfer(entry['record_id'], entry['start'], entry['end'])
+        for entry in body['transfers']
+    )
     return FrozenRevision(
         *key, row[0], row[1], tuple(body['nodes']),
-        tuple(Transfer(**entry) for entry in body['transfers']),
+        transfers,
         tuple(BoundaryPoint(**entry) for entry in body['boundaries']),
     )

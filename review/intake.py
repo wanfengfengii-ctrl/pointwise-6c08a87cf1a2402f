@@ -1,5 +1,6 @@
 from intake.days import require_identity
 from publish.package import decode_package, encode_package
+from publish.timed_package import decode_timed_package, encode_timed_package
 
 
 def initialize_imports(db):
@@ -23,6 +24,18 @@ def import_pack(db, payload):
     return package.pack_id
 
 
+def import_timed_pack(db, payload):
+    package = decode_timed_package(payload)
+    canonical = encode_timed_package(package)
+    db.execute('''
+        INSERT INTO imported_packages (pack_id, payload) VALUES (?, ?)
+        ON CONFLICT (pack_id) DO NOTHING
+    ''', (package.pack_id, canonical))
+    if _read_payload(db, package.pack_id) != canonical:
+        raise ValueError('PACKAGE_ID_CONFLICT')
+    return package.pack_id
+
+
 def _read_payload(db, pack_id):
     row = db.execute('SELECT payload FROM imported_packages WHERE pack_id = ?', (pack_id,)).fetchone()
     if row is None:
@@ -32,3 +45,10 @@ def _read_payload(db, pack_id):
 
 def load_imported_package(db, pack_id):
     return decode_package(_read_payload(db, require_identity(pack_id, 'INVALID_REQUEST')))
+
+
+def load_any_imported_package(db, pack_id):
+    payload = _read_payload(db, require_identity(pack_id, 'INVALID_REQUEST'))
+    if '"version":2' in payload:
+        return decode_timed_package(payload)
+    return decode_package(payload)
